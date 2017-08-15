@@ -5,6 +5,7 @@ import pathlib
 import re
 import logging
 import json
+import time
 from typing import List
 
 import requests
@@ -135,6 +136,7 @@ def archive_links(urls: List[str]) -> List[ArchivedUrl]:
             try:
                 logger.info("Archiving: {0}".format(url))
                 archived_urls.append(ArchivedUrl(original_url=url, archived_url=save_link_in_wayback_machine(url)))
+                time.sleep(1)  # Don't want to overload the archive.org server with requests.
             except (requests.HTTPError, json.JSONDecodeError) as e:
                 logger.info("There was an error while archiving the following URL: {0}. Skipping it.".format(url))
                 logger.exception(e)
