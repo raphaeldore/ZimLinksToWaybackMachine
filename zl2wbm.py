@@ -86,7 +86,7 @@ def save_link_in_wayback_machine(url: str) -> str:
         delta = current_date - closest_snapshot_timestamp
 
         # If the latest snapshot is less than 2 weeks old, then we use that one.
-        if delta.days < 14:
+        if delta.days <= 14:
             logger.debug("A recent copy of {0} indeeds exists in the Wayback Machine (date = {1}). Using that.".format(url,
                                                                                                                    closest_snapshot_timestamp.strftime("%Y-%m-%d %H:%M:%S")))
             archived_url = closest_snapshot["url"]
@@ -168,41 +168,55 @@ def get_urls_to_archive_from_text(text: str) -> List[str]:
 
 
 def edit_text(text: str, archived_urls: List[ArchivedUrl]) -> str:
-    """
+    r"""
     >>> edit_text("Normal link: http://google.com", [ArchivedUrl(original_url='http://google.com', archived_url='http://google.archive')])
     'Normal link: http://google.com ([[http://google.archive|Archive]])'
     >>> edit_text("Integrated link: [[http://google.com|Google]]", [ArchivedUrl(original_url='http://google.com', archived_url='http://google.archive')])
     'Integrated link: [[http://google.com|Google]] ([[http://google.archive|Archive]])'
     >>> edit_text("No links in this text!", [ArchivedUrl(original_url='http://google.com', archived_url='http://google.archive')])
     'No links in this text!'
+    >>> edit_text("| | http://google.com | |", [ArchivedUrl(original_url='http://google.com', archived_url='http://google.archive')])
+    '| | http://google.com ([[http://google.archive\\|Archive]]) | |'
 
     :param text:
     :param archived_urls:
     :return:
     """
-    for archived_url in archived_urls:
-        # regex = "(:?(:?{url})|(?:\[\[{url}\|.*\]\])){{1}}".format(url=re.escape(archived_url.original_url))
 
-        # normal_link_regex = "{url}"
-        # matches: BOL or whitespace {url} EOL or whitespace. Ex: http://google.com
-        normal_link_regex = re.compile("(?:(?<=\s)|(?<=^)){url}(?=\s|$)".format(url=archived_url.original_url))
-        # matches: BOL or whitespace [{url}|... ]] whitespace or EOL. Ex: [[http://google.com|Google]]
-        zim_integrated_link_regex = re.compile(
-            "(?:(?<=\s)|(?<=^))\[\[{url}\|[^\[]*\]\](?=\s|$)".format(url=archived_url.original_url))
+    new_lines = []
 
-        integrated_link_match = zim_integrated_link_regex.search(text)
-        normal_link_match = normal_link_regex.search(text)
-        if integrated_link_match:
-            effective_pattern = integrated_link_match.group(0)
-        elif normal_link_match:
-            effective_pattern = archived_url.original_url
-        else:
-            continue
+    for line in text.splitlines():
+        line_to_add = line
 
-        new_url = effective_pattern + " ([[{0}|Archive]])".format(archived_url.archived_url)
-        text = re.sub(re.escape(effective_pattern), new_url, text)
+        for archived_url in archived_urls:
+            # matches: BOL or whitespace {url} EOL or whitespace. Ex: http://google.com
+            normal_link_regex = re.compile("(?:(?<=\s)|(?<=^)){url}(?=\s|$)".format(url=archived_url.original_url))
+            # matches: BOL or whitespace [{url}|... ]] whitespace or EOL. Ex: [[http://google.com|Google]]
+            zim_integrated_link_regex = re.compile(
+                "(?:(?<=\s)|(?<=^))\[\[{url}\|[^\[]*\]\](?=\s|$)".format(url=archived_url.original_url))
 
-    return text
+            integrated_link_match = zim_integrated_link_regex.search(line)
+            normal_link_match = normal_link_regex.search(line)
+            if integrated_link_match:
+                effective_pattern = integrated_link_match.group(0)
+            elif normal_link_match:
+                effective_pattern = archived_url.original_url
+            else:
+                # The line doesn't have this URL (maybe it doesn't even have any), so we try with the next URL.
+                continue
+
+            if line.startswith("|") and line.endswith("|"):
+                # In a table, we must escape the | character.
+                # Note: Zim only supports ONE link per table cell. If there is more than one, it only displays the first
+                new_url = effective_pattern + " ([[{0}\\|Archive]])".format(archived_url.archived_url)
+            else:
+                new_url = effective_pattern + " ([[{0}|Archive]])".format(archived_url.archived_url)
+
+            line_to_add = re.sub(re.escape(effective_pattern), new_url, line)
+
+        new_lines.append(line_to_add)
+
+    return "\n".join(new_lines)
 
 
 def crawl_notebook_and_archive_links(zim_notebook_directory: str) -> None:
